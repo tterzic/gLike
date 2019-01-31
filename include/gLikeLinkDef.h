@@ -10,5 +10,6 @@
 #pragma link C++ class MIACTEventListIRF+;
 #pragma link C++ class FermiTables2016Lkl+;
 #pragma link C++ class TemplateLkl+;
+#pragma link C++ class IactBinnedLivLkl+;
 
 #endif
