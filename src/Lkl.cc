@@ -585,6 +585,7 @@ Double_t Lkl::MinimizeLkl(Double_t g,Bool_t gIsFixed,Bool_t isVerbose,Bool_t for
   // call minimization (with requested verbosity)
   Int_t strategy = (!gIsFixed)*2; // when it's fixed, we can relax the strategy since there is no interest in errors
   Double_t lkl = CallMinimization(g,isVerbose,strategy);
+  if(lkl>8e99) return -1000.;
 
   // keep value of minimum lkl and associated g (with error)  
   for(Int_t ipar=0;ipar<fNPars;ipar++)
@@ -637,7 +638,7 @@ Double_t Lkl::CallMinimization(Double_t g,Bool_t isVerbose,Int_t strategy)
   arglist[0] = 10000;
   iflag = -1;
   Int_t counter = 0;
-  const Int_t maxcounts = 50;
+  const Int_t maxcounts = 100;
 
   // try until convergence is achieved
   while((iflag!=0 || TMath::IsNaN(GetParErr(0))) && counter<maxcounts) // try until the fit converges
@@ -664,13 +665,15 @@ Double_t Lkl::CallMinimization(Double_t g,Bool_t isVerbose,Int_t strategy)
 	fMinuit->DefineParameter(gGParIndex,fParName[gGParIndex],g,fParDelta[gGParIndex]/10.*TMath::Power(1.8,counter), 0, 0);
       
       counter++;
-      if(counter==maxcounts)
-	cout << "Lkl::CallMinimization (" << GetName() << ") Warning: No convergence reached for g = " << g << " after " << maxcounts << " trials: check your -2logL curves for features" << endl;
     }
+
+    if(iflag != 0 && counter==maxcounts)
+      cout << "Lkl::CallMinimization (" << GetName() << ") Warning: No convergence reached for g = " << g << " after " << maxcounts << " trials: check your -2logL curves for features" << endl;
 
   delete [] arglist;
 
-  return (counter<maxcounts? GetLklVal() : 9e99);
+  if(iflag != 0) return 9e99;
+  else return (counter<=maxcounts? GetLklVal() : 9e99);
 }
 
 
