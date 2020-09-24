@@ -49,7 +49,7 @@ static const Int_t    gNPars           = 3;                      // Number of fr
 static const Char_t*  gParName[gNPars] = {"g","b","tau"};              // Name of parameters
 
 // static functions (for internal processing of input data)
-static TH1F* GetResidualsHisto(TH1F* hModel,TH1F* hData);
+static TH1F* GetResidualsHisto(TF1* fModel,TH1F* hData);
 
 //newly implemented 04/09/2020
 void differentiate(TH1F* h,Int_t error_flag);
@@ -205,52 +205,56 @@ Int_t LineSearchLkl::ComputeBkgModelFromOnHisto()
     }
   event_count=count;
 
+  // convert event distribution into dNdE histogra,
+  differentiate(hdNdEpOn,1);
+
   TH1F* hdNdEpBkg = new TH1F("HdNdEpBkg","dN/dE' for background model",Iact1dUnbinnedLkl::GetNFineBins(),Iact1dUnbinnedLkl::GetFineLEMin(),Iact1dUnbinnedLkl::GetFineLEMax());
 
   //TF1* f1 = new TF1("f1","TMath::Exp([0]+[1]*x*[2]*x*x+[3]*x*x*x+[4]*x*x*x*x)",Iact1dUnbinnedLkl::GetFineLEMin(),Iact1dUnbinnedLkl::GetFineLEMax());
   // TF1* f1 = new TF1("f1","TMath::Exp([0]+[1]*x*[2]*x*x+[3]*x*x*x)",Iact1dUnbinnedLkl::GetFineLEMin(),Iact1dUnbinnedLkl::GetFineLEMax());
-  TF1* f1 = new TF1("f1","expo",Iact1dUnbinnedLkl::GetFineLEMin(),Iact1dUnbinnedLkl::GetFineLEMax());
+  TF1* FdNdEpBkg = new TF1("FdNdEpBkg","expo",Iact1dUnbinnedLkl::GetFineLEMin(),Iact1dUnbinnedLkl::GetFineLEMax());
 
-  hdNdEpOn->Fit("f1","0","",low_edge,high_edge);
+  hdNdEpOn->Fit("FdNdEpBkg","0","",low_edge,high_edge);
   //TF1* f1 = new TF1("f1","pol3",Iact1dUnbinnedLkl::GetFineLEMin(),Iact1dUnbinnedLkl::GetFineLEMax());
   //sleep(100);
 
   for(Int_t ibin=1; ibin < Iact1dUnbinnedLkl::GetNFineBins()-1; ibin++)
     {
-      if (hdNdEpOn->GetBinContent(ibin)>0){ hdNdEpBkg->SetBinContent(ibin,f1->Eval(hdNdEpBkg->GetBinCenter(ibin)));
+      if (hdNdEpOn->GetBinContent(ibin)>0){ hdNdEpBkg->SetBinContent(ibin,FdNdEpBkg->Eval(hdNdEpBkg->GetBinCenter(ibin)));
           bin_enwindow++;
       }
     }
-/*
-    TCanvas *c1_test = new TCanvas("c1_test","c1_test",1200,600);
-    c1_test->Divide(2,1);
-    c1_test->cd(1);
+    cout<<"test5"<<endl;
+
+    TCanvas *c1_test = new TCanvas("c1_test","c1_test",600,600);
+    //c1_test->Divide(2,1);
+    //c1_test->cd(1);
     hdNdEpOn->DrawCopy();
-    f1->DrawCopy("sames");
-*/
+    FdNdEpBkg->DrawCopy("sames");
+    c1_test->SaveAs("c2_test.root");
+
     
     // convert event distribution into dNdE histogra,
-    differentiate(hdNdEpOn,1);
-    differentiate(hdNdEpBkg,0); //CHECK do we still need to diferentiate or can we use isDiff from TransformAndSavedNdEpBkg?
-    
+    //differentiate(hdNdEpOn,1);
+    //differentiate(hdNdEpBkg,0); //CHECK do we still need to diferentiate or can we use isDiff from TransformAndSavedNdEpBkg?
+    cout<<"test6"<<endl;
+
     //===Find bins ===
-    Int_t low_edge_bin =hdNdEpBkg->FindBin(low_edge);
-    Int_t high_edge_bin = hdNdEpBkg->FindBin(high_edge);
+    //Int_t low_edge_bin =hdNdEpBkg->FindBin(low_edge);
+    //Int_t high_edge_bin = hdNdEpBkg->FindBin(high_edge);
 
     //===Normalization for On data and bkg model===
-    Double_t scale_1 = Lkl::IntegrateLogE(hdNdEpOn,low_edge,high_edge);
-    Double_t scale_2 = Lkl::IntegrateLogE(hdNdEpBkg,low_edge,high_edge);
+    //Double_t scale_1 = Lkl::IntegrateLogE(hdNdEpOn,low_edge,high_edge);
+    //Double_t scale_2 = Lkl::IntegrateLogE(hdNdEpBkg,low_edge,high_edge);
 
-    /*
-    c1_test->cd(2);
-    fHdNdEpBkg->SetLineColor(2);
-    fHdNdEpBkg->SetMarkerColor(2);
-    fHdNdEpBkg->SetMarkerStyle(2);
-    fHdNdEpBkg->DrawCopy();
-    hdNdEpOn->DrawCopy("sames");
+    TCanvas *c2_test = new TCanvas("c2_test","c2_test",600,600);
+    //c1_test->cd(2);
+    FdNdEpBkg->SetLineColor(2);
+    hdNdEpBkg->DrawCopy();
+    FdNdEpBkg->DrawCopy("sames");
     
-    c1_test->SaveAs("c1_test.root");
-*/
+    c2_test->SaveAs("c2_test.root");
+
     
     /* TOMO : I don't think this re-scale is neccesary, what do you think?
     for(Int_t ibin=1; ibin < Iact1dUnbinnedLkl::GetNFineBins()-1; ibin++)
@@ -261,11 +265,16 @@ Int_t LineSearchLkl::ComputeBkgModelFromOnHisto()
     */
    
   //DANIEL here we need to set fHdNdEpBkg of Iact1dUnbinned class with this newly computed histo
-  TransformAndSavedNdEpBkg(hdNdEpBkg,kFALSE);
-  hdNdEpBkg->SaveAs("./bkg_before.root");
- 
+  //TransformAndSavedNdEpBkg(hdNdEpBkg,kFALSE);
+  NormalizedNdEHisto(hdNdEpBkg);
+    cout<<"test7"<<endl;
+  FdNdEpBkg->SaveAs("./bkg_before.root");
+    cout<<"test3"<<endl;
+    sleep(5);
+  SetfBkg(FdNdEpBkg);
+    cout<<"test4"<<endl;
   delete hdNdEpOn;
-  delete f1;
+  //delete fFdNdEpBkg;
 
   return 0;
 }
@@ -305,8 +314,10 @@ TCanvas* LineSearchLkl::PlotHistosAndData()
   TH1F* hOn  = GetHdNdEpOn();
   //TH1F* hOn  = LineSearchLkl::GetHdNdEpOn();
   hOn->SetDirectory(0);
-  TH1F* hdNdEpBkg = GetHdNdEpBkg();
-
+  //TH1F* hdNdEpBkg = GetHdNdEpBkg();
+  cout<<"test"<<endl;
+  TF1* hdNdEpBkg = GetFdNdEpBkg();
+  cout<<"test2"<<endl;
   TH1I *dummya = new TH1I("dummya", "dN/dE' bkg model vs On distribution",1,TMath::Log10(GetEmin()),TMath::Log10(GetEmax()));
   dummya->SetStats(0);
   if(GetNon()>1)
@@ -326,20 +337,21 @@ TCanvas* LineSearchLkl::PlotHistosAndData()
   dummya->DrawCopy();
 
   //TH1F* hBkg  = GetHdNdEpModelBkg();
-  TH1F* hBkg  = GetHdNdEpBkg();
-  hBkg->SetDirectory(0);
-  hBkg->SaveAs("bkg.root");
+  //TH1F* hBkg  = GetHdNdEpBkg();
+  TF1* hBkg  = GetFdNdEpBkg();
+  //hBkg->SetDirectory(0);
+  //hBkg->SaveAs("bkg.root");
   if(hdNdEpBkg)
     {
       //Double_t scale = hBkg->GetBinContent(0);
       //Double_t scale2 = hOn->GetBinContent(0);
       hBkg->SetLineColor(2);
-      hBkg->SetMarkerColor(2);
-      hBkg->SetMarkerStyle(2);
+      //hBkg->SetMarkerColor(2);
+      //hBkg->SetMarkerStyle(2);
       hBkg->DrawCopy("esame");
     }
   hOn->DrawCopy("esame");
-
+  hdNdEpBkg->DrawCopy("same");
   gPad->SetLogy();
   gPad->SetGrid();
 
@@ -404,6 +416,7 @@ TCanvas* LineSearchLkl::PlotHistosAndData()
     {
       hResidualsOn  =  GetResidualsHisto(hBkg,hOn);
       hResidualsOn->DrawCopy("esame");
+      cout<<"residual"<<endl;
     }
 
   TLegend* hleg3 = new TLegend(0.65, 0.65, 0.90, 0.90);
@@ -493,28 +506,40 @@ void differentiate(TH1F* h, Int_t error_flag=0)
 // Given a histogram hModel representing a model
 // and another one hData representing data (with properly computed errors)
 // return the histogram of residuals (hData-hModel)
-//
-TH1F* GetResidualsHisto(TH1F* hModel,TH1F* hData)
+// newly added on 24th September to enable to deal with TF1
+TH1F* GetResidualsHisto(TF1* fModel,TH1F* hData)
 {
   // basic check
-  if(!hModel || !hData) return NULL;
+  if(!fModel || !hData) return NULL;
 
   // get number of data bins
   UInt_t nbins = hData->GetNbinsX();
- 
+  cout<<"nbins = "<<nbins<<endl;
   // check if bin width is constant
-  Bool_t binWidthIsConstant = kTRUE;
-  for(Int_t ibin=0;ibin<nbins-1;ibin++)
-    if(TMath::Abs(Float_t(hData->GetBinWidth(ibin+1))-Float_t(hData->GetBinWidth(ibin+2)))>1e-9)
-      binWidthIsConstant = kFALSE;
+  //Bool_t binWidthIsConstant = kTRUE;
+  //for(Int_t ibin=0;ibin<nbins-1;ibin++)
+    //if(TMath::Abs(Float_t(hData->GetBinWidth(ibin+1))-Float_t(hData->GetBinWidth(ibin+2)))>1e-9)
+      //binWidthIsConstant = kFALSE;
 
   // create reiduals histo
   TH1F* hResiduals;
-  if(binWidthIsConstant)
-    hResiduals = new TH1F("hResiduals","Residuals data-Model",nbins,hData->GetXaxis()->GetXmin(),hData->GetXaxis()->GetXmax());
-  else
-    hResiduals = new TH1F("hResiduals","Residuals data-Model",nbins,hData->GetXaxis()->GetXbins()->GetArray());
+  hResiduals = new TH1F("hResiduals","Residuals data-Model",nbins,hData->GetXaxis()->GetXmin(),hData->GetXaxis()->GetXmax());
   hResiduals->SetDirectory(0);
+
+  //Prepare hModel histogram
+  TH1F* hModel;
+  hModel = new TH1F("hModel","hModel",nbins,hData->GetXaxis()->GetXmin(),hData->GetXaxis()->GetXmax());
+
+    cout<<"xmin = "<<hData->GetXaxis()->GetXmin()<<"\t xmax = "<<hData->GetXaxis()->GetXmax()<<endl;
+  //Fill hModel histogram intepolated from fModel
+  for(Int_t ibin=0;ibin<nbins;ibin++)
+    {
+      hModel->Fill(hData->GetBinCenter(ibin),fModel->Eval(hData->GetBinCenter(ibin)));
+      cout<<"ibin = "<<ibin<<"\t"<<hData->GetBinCenter(ibin)<<"\tResidual = "<<fModel->Eval(hData->GetBinCenter(ibin))<<endl;
+    }
+    //TCanvas *c2 = new TCanvas("c2","c2",600,600);
+    //hModel->Draw();
+    //c2->SaveAs("hModel.root");
 
   // fill histo
   for(Int_t ibin=0;ibin<nbins;ibin++)
@@ -526,6 +551,7 @@ TH1F* GetResidualsHisto(TH1F* hModel,TH1F* hData)
         {
           hResiduals->SetBinContent(ibin+1,(hData->GetBinContent(ibin+1)-hModel->GetBinContent(modbin))/errbar);
           hResiduals->SetBinError(ibin+1,1);
+          cout<<"check = "<<hResiduals->GetBinContent(ibin+1)<<endl;
         }
       else
         {
