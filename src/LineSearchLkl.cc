@@ -38,7 +38,7 @@ static const Int_t    gNPars           = 3;                      // Number of fr
 static const Char_t*  gParName[gNPars] = {"g","b","tau"};        // Name of parameters
 
 // static functions (for internal processing of input data)
-static TH1F* GetResidualsHisto(TH1F* hModel,TH1F* hData);
+static TH1F* GetResidualsHisto(TF1* fModel,TH1F* hData);
 void differentiate(TH1F* h,Int_t error_flag);
 
 // -2logL function for minuit
@@ -177,7 +177,7 @@ Int_t LineSearchLkl::ComputeBkgModelFromOnHisto()
 
   TH1F* hdNdEpBkg = new TH1F("HdNdEpBkg","dN/dE' for background model",GetNFineBins(),GetFineLEMin(),GetFineLEMax());
 
-  TF1* f1 = new TF1("f1","expo",GetFineLEMin(),GetFineLEMax());
+  TF1* f1 = new TF1("f1","TMath::Exp([3]*x*x*x+[2]*x*x+[1]*x+[0])",GetFineLEMin(),GetFineLEMax());
 
   hdNdEpOn->Fit("f1","0","",TMath::Log10(GetEmin()),TMath::Log10(GetEmax()));
 
@@ -187,9 +187,9 @@ Int_t LineSearchLkl::ComputeBkgModelFromOnHisto()
 
   // replace fHdNdEpBkg with newly computed background histogram
   SetdNdEpBkg(hdNdEpBkg);
-
+  SetfBkg(f1);
   delete hdNdEpOn;
-  delete f1;
+  //delete f1;
 
   return 0;
 }
@@ -228,8 +228,8 @@ TCanvas* LineSearchLkl::PlotHistosAndData()
   canvas->cd(2);
   TH1F* hOn  = GetHdNdEpOn();
   hOn->SetDirectory(0);
-  TH1F* hdNdEpBkg = GetHdNdEpBkg();
-
+  //TH1F* hdNdEpBkg = GetHdNdEpBkg();
+  TF1* hdNdEpBkg = GetFdNdEpBkg();
   TH1I *dummya = new TH1I("dummya", "dN/dE' bkg model vs On distribution",1,TMath::Log10(GetEmin()),TMath::Log10(GetEmax()));
   dummya->SetStats(0);
   if(GetNon()>1)
@@ -248,7 +248,7 @@ TCanvas* LineSearchLkl::PlotHistosAndData()
   dummya->SetYTitle("dN/dE' [GeV^{-1}]");
   dummya->DrawCopy();
 
-  hdNdEpBkg->SetDirectory(0);
+  //hdNdEpBkg->SetDirectory(0);
   if(hdNdEpBkg)
     {
       hdNdEpBkg->SetLineColor(2);
@@ -384,6 +384,113 @@ TCanvas* LineSearchLkl::PlotHistosAndData()
   return canvas;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Plot a canvas with all material to minimize the -2logL:
+// - dN/dE' for background compared to the On and Off distributions with residuals
+//
+// return a pointer to the canvas, in case you want to modify it
+//
+TCanvas* LineSearchLkl::PlotforWindow()
+{
+  MakeChecks();
+  SetChecked(kFALSE);
+
+  // create and divide canvas
+  TCanvas* canvas = new TCanvas("histosAndDataCanvas","LineSearchLkl histos and data used to minimize -2logL", 1600, 800);
+  canvas->Divide(2,1);
+
+  // draw plots
+
+  // dN/dE' background vs data
+  canvas->cd(1);
+  TH1F* hOn  = GetHdNdEpOn();
+  hOn->SetDirectory(0);
+  //TH1F* hdNdEpBkg = GetHdNdEpBkg();
+  TF1* hdNdEpBkg = GetFdNdEpBkg();
+  TH1I *dummya = new TH1I("dummya", "dN/dE' bkg model vs On distribution",1,TMath::Log10(GetEmin()),TMath::Log10(GetEmax()));
+  dummya->SetStats(0);
+  if(GetNon()>1)
+    {
+      dummya->SetMinimum(hOn->GetMinimum(0)/2.);
+      dummya->SetMaximum(hOn->GetMaximum()*2);
+    }
+  else if(hdNdEpBkg)
+    {
+      dummya->SetMinimum(hdNdEpBkg->GetMinimum());
+      dummya->SetMaximum(hdNdEpBkg->GetMaximum());
+    }
+
+  if(!hdNdEpBkg) dummya->SetTitle("dN/dE' distributions for On event samples");
+  dummya->SetXTitle("log_{10}(E' [GeV])");
+  dummya->SetYTitle("dN/dE' [GeV^{-1}]");
+  dummya->DrawCopy();
+
+  //hdNdEpBkg->SetDirectory(0);
+  if(hdNdEpBkg)
+    {
+      hdNdEpBkg->SetLineColor(2);
+      hdNdEpBkg->SetMarkerColor(2);
+      hdNdEpBkg->SetMarkerStyle(2);
+      hdNdEpBkg->DrawCopy("esame");
+    }
+  hOn->DrawCopy("esame");
+
+  gPad->SetLogy();
+  gPad->SetGrid();
+
+  TLegend* hleg = new TLegend(0.65, 0.65, 0.85, 0.85);
+  hleg->SetFillColor(0);
+  hleg->SetMargin(0.40);
+  hleg->SetBorderSize(0);
+  hleg->AddEntry(hOn,"On events","LP");
+  hleg->AddEntry(hdNdEpBkg,"Bkg model","LP");
+  hleg->Draw();
+
+  gPad->Modified();
+  gPad->Update();
+
+  // residuals
+  canvas->cd(2);
+  dummya->SetMinimum(-10);
+  dummya->SetMaximum(10);
+  dummya->SetTitle("Residuals");
+  dummya->SetXTitle("log_{10}(E' [GeV])");
+  if(hdNdEpBkg)
+    dummya->SetYTitle("(Data-dN/dE')/ #Delta Data");
+  else
+    dummya->SetTitle("(On-Off)/ #Delta On");
+  dummya->DrawCopy();
+  TH1F* hResidualsOn  = NULL;
+
+  if(hdNdEpBkg && hOn)
+    {
+      hResidualsOn = GetResidualsHisto(hdNdEpBkg,hOn);
+      hResidualsOn->DrawCopy("esame");
+    }
+
+  TLegend* hleg3 = new TLegend(0.65, 0.65, 0.90, 0.90);
+  hleg3->SetFillColor(0);
+  hleg3->SetMargin(0.40);
+  hleg3->SetBorderSize(0);
+  hleg3->AddEntry(hResidualsOn,"On events","LP");
+  hleg3->Draw();
+
+  gPad->SetGrid();
+  gPad->Modified();
+  gPad->Update();
+
+  TH1I *dummyabis = new TH1I("dummyabis", "dN/dE' bkg model vs On distribution",1,TMath::Log10(10.),TMath::Log10(100000.));
+  dummyabis->SetStats(0);
+
+  delete hOn;
+  if(hResidualsOn)  delete hResidualsOn;
+  delete dummya;
+  delete dummyabis;
+  return canvas;
+}
+
+
 /////////////////////////////////////////////////////////////////
 //
 // Conversion histogram of event count into dNdE histogram
@@ -410,28 +517,34 @@ void differentiate(TH1F* h, Int_t error_flag=0)
 // and another one hData representing data (with properly computed errors)
 // return the histogram of residuals (hData-hModel)
 //
-TH1F* GetResidualsHisto(TH1F* hModel,TH1F* hData)
+TH1F* GetResidualsHisto(TF1* fModel,TH1F* hData)
 {
   // basic check
-  if(!hModel || !hData) return NULL;
+  if(!fModel || !hData) return NULL;
 
   // get number of data bins
   UInt_t nbins = hData->GetNbinsX();
  
   // check if bin width is constant
-  Bool_t binWidthIsConstant = kTRUE;
-  for(Int_t ibin=0;ibin<nbins-1;ibin++)
-    if(TMath::Abs(Float_t(hData->GetBinWidth(ibin+1))-Float_t(hData->GetBinWidth(ibin+2)))>1e-9)
-      binWidthIsConstant = kFALSE;
+  //Bool_t binWidthIsConstant = kTRUE;
+  //for(Int_t ibin=0;ibin<nbins-1;ibin++)
+    //if(TMath::Abs(Float_t(hData->GetBinWidth(ibin+1))-Float_t(hData->GetBinWidth(ibin+2)))>1e-9)
+      //binWidthIsConstant = kFALSE;
 
   // create reiduals histo
   TH1F* hResiduals;
-  if(binWidthIsConstant)
-    hResiduals = new TH1F("hResiduals","Residuals data-Model",nbins,hData->GetXaxis()->GetXmin(),hData->GetXaxis()->GetXmax());
-  else
-    hResiduals = new TH1F("hResiduals","Residuals data-Model",nbins,hData->GetXaxis()->GetXbins()->GetArray());
-  hResiduals->SetDirectory(0);
+  hResiduals = new TH1F("hResiduals","Residuals data-Model",nbins,hData->GetXaxis()->GetXmin(),hData->GetXaxis()->GetXmax());
+    
+  //Prepare hModel histogram
+    TH1F* hModel;
+    hModel = new TH1F("hModel","hModel",nbins,hData->GetXaxis()->GetXmin(),hData->GetXaxis()->GetXmax());
 
+    //Fill hModel histogram intepolated from fModel
+    for(Int_t ibin=0;ibin<nbins;ibin++)
+      {
+        hModel->Fill(hData->GetBinCenter(ibin),fModel->Eval(hData->GetBinCenter(ibin)));
+     }
+    
   // fill histo
   for(Int_t ibin=0;ibin<nbins;ibin++)
     {
