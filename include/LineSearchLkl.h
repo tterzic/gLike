@@ -24,6 +24,7 @@ class LineSearchLkl : public Iact1dUnbinnedLkl
   TCanvas* PlotforWindow();
   inline TF1*    GetFdNdEpBkg()         {return fFdNdEpBkg;}
   // getters
+  virtual Int_t  SimulateDataSamples(UInt_t seed=0,Float_t meanG=0);
   inline Int_t GetEventsInEnergyWindow()             const {return fEventsInEnergyWindow;}
 
  protected:
