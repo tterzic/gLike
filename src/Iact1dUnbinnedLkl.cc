@@ -1539,9 +1539,9 @@ TCanvas* Iact1dUnbinnedLkl::PlotHistosAndData()
   if(fHdNdEpBkg) fHdNdEpBkg->DrawCopy("same");
   if(fHdNdEpFrg) fHdNdEpFrg->DrawCopy("same");
   hOn->DrawCopy("esame");
-  hOff->SetLineColor(2);
-  hOff->SetMarkerColor(2);
-  hOff->DrawCopy("esame");
+  //hOff->SetLineColor(2);
+  //hOff->SetMarkerColor(2);
+  //hOff->DrawCopy("esame");
 
   gPad->SetLogy();
   gPad->SetGrid();
@@ -1551,7 +1551,7 @@ TCanvas* Iact1dUnbinnedLkl::PlotHistosAndData()
   hleg->SetMargin(0.40);
   hleg->SetBorderSize(0);
   hleg->AddEntry(hOn,"On events","LP");
-  hleg->AddEntry(hOff,"Off events","LP");
+  //hleg->AddEntry(hOff,"Off events","LP");
   hleg->Draw();
 
   gPad->Modified();
@@ -1609,10 +1609,10 @@ TCanvas* Iact1dUnbinnedLkl::PlotHistosAndData()
     {
       hResidualsOn  =  GetResidualsHisto(fHdNdEpBkg,hOn);
       hResidualsOn->DrawCopy("esame");
-      hResidualsOff =  GetResidualsHisto(fHdNdEpBkg,hOff);
-      hResidualsOff->SetLineColor(2);
-      hResidualsOff->SetMarkerColor(2);
-      hResidualsOff->DrawCopy("esame");
+      //hResidualsOff =  GetResidualsHisto(fHdNdEpBkg,hOff);
+      //hResidualsOff->SetLineColor(2);
+      //hResidualsOff->SetMarkerColor(2);
+      //hResidualsOff->DrawCopy("esame");
     }
   else if(hOff && hOn)
     {
@@ -2206,12 +2206,13 @@ void fullLkl(Int_t &fpar, Double_t *gin, Double_t &f, Double_t *par, Int_t iflag
   Double_t frg     = (hdNdEpFrg? mylkl->GetdNdEpFrgIntegral()*Tobs : 0);
   Double_t boff    = b*tauest;
   Double_t goff    = (hdNdEpSignalOff? tauest*g*mylkl->GetdNdEpSignalOffIntegral()/mylkl->GetdNdEpSignalIntegral() : 0);
-  Double_t fnorm   = g+b+frg+boff+goff;
+  //Double_t fnorm   = g+b+frg+boff+goff;
+  Double_t fnorm   = g+boff;
   
   // sum signal and background (and maybe foreground) contributions and normalize resulting pdf (On + Off)
   TH1F* hdNdEpOn  = new TH1F("hdNdEpOn", "On  event rate vs E'",nbins,xmin,xmax);
   hdNdEpOn->Reset();
-  hdNdEpOn->Add(hdNdEpSignal,hdNdEpBkg,g,b);
+  hdNdEpOn->Add(hdNdEpSignal,hdNdEpBkg,g,boff);
   if(hdNdEpFrg)
     hdNdEpOn->Add(hdNdEpOn,hdNdEpFrg,1,frg);
 
@@ -2248,6 +2249,7 @@ void fullLkl(Int_t &fpar, Double_t *gin, Double_t &f, Double_t *par, Int_t iflag
     }
   
   // Off events
+  /*
   for(ULong_t ievent=0; ievent<Noff; ievent++)
     {
       Float_t val = hdNdEpOff->GetBinContent(hdNdEpOff->FindBin(offSample[ievent]));
@@ -2256,6 +2258,7 @@ void fullLkl(Int_t &fpar, Double_t *gin, Double_t &f, Double_t *par, Int_t iflag
       else
         f += 1e99;
     }
+  */
 
   // nuisance tau
   if(dTau>0)
@@ -2267,10 +2270,12 @@ void fullLkl(Int_t &fpar, Double_t *gin, Double_t &f, Double_t *par, Int_t iflag
   else
     f += 1e99;
 
+  /*
   if(goff+boff>0)
     f += -2*TMath::Log(TMath::Poisson(Noff,goff+boff));
   else
     f += 1e99;  
+  */
 
   delete hdNdEpOn;
   delete hdNdEpOff;
