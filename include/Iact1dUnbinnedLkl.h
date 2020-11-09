@@ -114,6 +114,10 @@ class Iact1dUnbinnedLkl : public virtual Lkl
   virtual TCanvas* PlotHistosAndData();
 
   Int_t    NormalizedNdEHisto(TH1F* histo);
+    
+  // getters
+  inline Int_t GetEventsInEnergyWindow()             const {return fEventsInEnergyWindow;}
+  Int_t ComputeBkgModelFromOnHisto();
 
  protected:
           Int_t    InterpretInputString(TString inputString);
@@ -137,8 +141,10 @@ class Iact1dUnbinnedLkl : public virtual Lkl
   Int_t    CheckHistograms(Bool_t checkdNdEpBkg=kTRUE);
   Int_t    CheckEnergyLimits() const;
   
- private:  
-
+ private:
+  
+  Int_t fEventsInEnergyWindow;
+    
   // Elements to be supplied by user
   Float_t  fEpmin;           // [GeV] Minimum measured energy of considered events
   Float_t  fEpmax;           // [GeV] Maximum measured energy of considered events

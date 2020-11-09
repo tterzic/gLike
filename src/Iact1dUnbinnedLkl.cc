@@ -399,8 +399,8 @@ void Iact1dUnbinnedLkl::SetFunctionAndPars(Double_t ginit)
 {
   fMinuit->SetFCN(fullLkl);
   fMinuit->SetName(Form("%s_Minuit",GetName()));
-  Double_t pStart[gNPars] = {ginit, fNoff/fTau, fTau};
-  Double_t pDelta[gNPars] = {TMath::Sqrt(fNoff)/10.,TMath::Sqrt(fNoff)/10.,fDTau/10.};    // Precision of parameters during minimization
+  Double_t pStart[gNPars] = {ginit, fEventsInEnergyWindow/fTau, fTau};
+  Double_t pDelta[gNPars] = {TMath::Sqrt(fEventsInEnergyWindow)/10.,TMath::Sqrt(fEventsInEnergyWindow)/10.,fDTau/10.};    // Precision of parameters during minimization
 
   SetParameters(gParName,pStart,pDelta);
 
@@ -425,6 +425,9 @@ void Iact1dUnbinnedLkl::SetFunctionAndPars(Double_t ginit)
 Int_t Iact1dUnbinnedLkl::MakeChecks()
 {
   if(IsChecked()) return 0;
+    
+  // compute background model
+  ComputeBkgModelFromOnHisto();
 
   // check if all needed histos are there
   if(CheckHistograms())
@@ -1146,6 +1149,25 @@ Int_t Iact1dUnbinnedLkl::SetEResoAndBias(TGraph* ereso,TGraph* ebias)
   return 0;
 }
   
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Compute background model from On data
+//
+Int_t Iact1dUnbinnedLkl::ComputeBkgModelFromOnHisto()
+{
+      const Float_t* onSample = GetOnSample();
+      UInt_t              Non = GetNon();
+        
+      // filling and counting number of events inside energy wondow
+      int count=0;
+      for(ULong_t ievent=0; ievent<Non; ievent++)
+        {
+          if(onSample[ievent] > TMath::Log10(GetEmin()) && onSample[ievent] < TMath::Log10(GetEmax())){
+            count++;
+          }
+        }
+      fEventsInEnergyWindow=count;
+}
   
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 // 
@@ -2183,9 +2205,9 @@ void fullLkl(Int_t &fpar, Double_t *gin, Double_t &f, Double_t *par, Int_t iflag
 
   // get internal object, histos, values, etc
   Iact1dUnbinnedLkl*        mylkl           = dynamic_cast<Iact1dUnbinnedLkl*>(minuit->GetObjectFit());
-  const TH1F*      hdNdEpSignal    = mylkl->GetHdNdEpSignal();
+  TH1F*      hdNdEpSignal    = mylkl->GetHdNdEpSignal();
   const TH1F*      hdNdEpSignalOff = mylkl->GetHdNdEpSignalOff();
-  const TH1F*      hdNdEpBkg       = mylkl->GetHdNdEpBkg();
+  TH1F*      hdNdEpBkg       = mylkl->GetHdNdEpBkg();
   const TH1F*      hdNdEpFrg       = mylkl->GetHdNdEpFrg();
   const Float_t*   onSample        = mylkl->GetOnSample();
   const Float_t*   offSample       = mylkl->GetOffSample();
@@ -2209,6 +2231,27 @@ void fullLkl(Int_t &fpar, Double_t *gin, Double_t &f, Double_t *par, Int_t iflag
   //Double_t fnorm   = g+b+frg+boff+goff;
   Double_t fnorm   = g+boff;
   
+  //get energy window size
+  Float_t lowE = mylkl->GetEmin();
+  Float_t highE = mylkl->GetEmax();
+  //cout<<lowE<<"\t"<<highE<<endl;
+
+  //Set Energy widnow for PDF and normalize again
+    for(Int_t k=1;k<nbins+1;k++){
+        Double_t val_sig =  hdNdEpSignal->GetBinCenter(k);
+        Double_t val_bkg =  hdNdEpBkg->GetBinCenter(k);
+        //cout<<val_sig<<"\t"<<val_bkg<<"\t"<<hdNdEpBkg->GetBinContent(k)<<"\t"<<endl;
+        if(val_bkg < TMath::Log10(lowE) || val_bkg > TMath::Log10(highE)){
+            hdNdEpSignal->SetBinContent(k,0);
+            hdNdEpBkg->SetBinContent(k,0);
+            //cout<<"inside En range"<<endl;
+        }
+    }
+  hdNdEpSignal->SetBinContent(0,0);
+  hdNdEpBkg->SetBinContent(0,0);
+  mylkl->NormalizedNdEHisto(hdNdEpSignal);
+  mylkl->NormalizedNdEHisto(hdNdEpBkg);
+    
   // sum signal and background (and maybe foreground) contributions and normalize resulting pdf (On + Off)
   TH1F* hdNdEpOn  = new TH1F("hdNdEpOn", "On  event rate vs E'",nbins,xmin,xmax);
   hdNdEpOn->Reset();
@@ -2221,7 +2264,19 @@ void fullLkl(Int_t &fpar, Double_t *gin, Double_t &f, Double_t *par, Int_t iflag
     hdNdEpOn->Scale(1./fnorm);
   else
     mylkl->NormalizedNdEHisto(hdNdEpOn);
-
+/*
+  TCanvas *c1_test = new TCanvas("test_c1","test_c1",1200,400);
+    c1_test->Divide(3,1);
+    c1_test->cd(1);
+    hdNdEpSignal->DrawCopy();
+    c1_test->cd(2);
+    hdNdEpBkg->DrawCopy();
+    c1_test->cd(3);
+    hdNdEpOn->DrawCopy();
+    c1_test->SaveAs("test_c1.root");
+    sleep(10);
+*/
+    
   TH1F* hdNdEpOff = new TH1F("hdNdEpOff","Off event rate vs E'", nbins,xmin,xmax);
   hdNdEpOff->Reset();
   if(hdNdEpSignalOff)
@@ -2237,8 +2292,33 @@ void fullLkl(Int_t &fpar, Double_t *gin, Double_t &f, Double_t *par, Int_t iflag
  
   // -2 log-likelihood
   f = 0;
+   
+    // On events
+    /*
+    for(ULong_t ievent=0; ievent<Non; ievent++)
+      {
+        Float_t val = hdNdEpOn->GetBinContent(hdNdEpOn->FindBin(onSample[ievent]));
+        if(onSample[ievent] > TMath::Log10(lowE) && onSample[ievent] < TMath::Log10(highE))
+          {
+            if(val>0)
+              f += -2*TMath::Log(val);
+            else
+              f += 1e99;
+          }
+        else
+          f += 0;
+      }
+*/
+
+    for(ULong_t ievent=0; ievent<Non; ievent++)
+      {
+        Float_t val = hdNdEpOn->GetBinContent(hdNdEpOn->FindBin(onSample[ievent]));
+        if(val>0)
+          f += -2*TMath::Log(val);
+      }
 
   // On events
+    /*
   for(ULong_t ievent=0; ievent<Non; ievent++)
     {
       Float_t val = hdNdEpOn->GetBinContent(hdNdEpOn->FindBin(onSample[ievent]));
@@ -2247,7 +2327,8 @@ void fullLkl(Int_t &fpar, Double_t *gin, Double_t &f, Double_t *par, Int_t iflag
       else
         f += 1e99;
     }
-  
+  */
+    
   // Off events
   /*
   for(ULong_t ievent=0; ievent<Noff; ievent++)
@@ -2266,7 +2347,7 @@ void fullLkl(Int_t &fpar, Double_t *gin, Double_t &f, Double_t *par, Int_t iflag
 
   // tot Nevts and nuisance Noff
   if(g+b+frg>0)
-    f += -2*TMath::Log(TMath::Poisson(Non,g+b+frg));
+    f += -2*TMath::Log(TMath::Poisson(mylkl->GetEventsInEnergyWindow(),g+boff+frg));
   else
     f += 1e99;
 
