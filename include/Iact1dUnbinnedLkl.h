@@ -52,29 +52,30 @@ class Iact1dUnbinnedLkl : public virtual Lkl
   inline void SetFineLEMax(Double_t finelemax) {fFineLEMax = finelemax;}
 
   // getters
-  inline       Float_t  GetEmin()             const {return fEpmin;} 
-  inline       Float_t  GetEmax()             const {return fEpmax;}
-  inline       UInt_t   GetNon()              const {return fNon;}
-  inline       UInt_t   GetNoff()             const {return fNoff;}
-  inline const Float_t* GetOnSample()         const {return fOnSample;}
-  inline const Float_t* GetOffSample()        const {return fOffSample;}
-  inline       Float_t  GetTau()              const {return fTau;}
-  inline       Float_t  GetDTau()             const {return fDTau;}
-  inline       Float_t  GetTrueTau()          const {return fTrueTau;}
-  inline       Float_t  GetObsTime()          const {return fObsTime;}
-  inline       Float_t  GetDataTau()          const {return fDataTau;}
-  inline       Float_t  GetDataDTau()         const {return fDataDTau;}
-  inline       Float_t  GetDataObsTime()      const {return fDataObsTime;}
-  inline const TH1F*    GetHAeff()            const {return fHAeff;}
-  inline const TH1F*    GetHAeffOff()         const {return fHAeffOff;}
-  inline const TH1F*    GetHdNdEpBkg()        const {return fHdNdEpBkg;}
-  inline const TH1F*    GetHdNdEpFrg()        const {return fHdNdEpFrg;}
-  inline const TH1F*    GetHdNdEpSignal()     const {return fHdNdEpSignal;}
-  inline const TH1F*    GetHdNdEpSignalOff()  const {return fHdNdEpSignalOff;}
-  inline const TH1F*    GetHdNdESignal()      const {return fHdNdESignal;}
-  inline const TGraph*  GetGEreso()           const {return fGEreso;} 
-  inline const TGraph*  GetGEbias()           const {return fGEbias;}
-  inline const TH2F*    GetMigMatrix()        const {return fMigMatrix;}
+  inline Float_t  GetEmin()             const {return fEpmin;} 
+  inline Float_t  GetEmax()             const {return fEpmax;}
+  inline UInt_t   GetNon()              const {return fNon;}
+  inline UInt_t   GetNoff()             const {return fNoff;}
+  inline Float_t* GetOnSample()         const {return fOnSample;}
+  inline Float_t* GetOffSample()        const {return fOffSample;}
+  inline Float_t  GetTau()              const {return fTau;}
+  inline Float_t  GetDTau()             const {return fDTau;}
+  inline Float_t  GetTrueTau()          const {return fTrueTau;}
+  inline Float_t  GetObsTime()          const {return fObsTime;}
+  inline Float_t  GetDataTau()          const {return fDataTau;}
+  inline Float_t  GetDataDTau()         const {return fDataDTau;}
+  inline Float_t  GetDataObsTime()      const {return fDataObsTime;}
+  inline TH1F*    GetHAeff()            const {return fHAeff;}
+  inline TH1F*    GetHAeffOff()         const {return fHAeffOff;}
+  inline TH1F*    GetHdNdEpBkg()        const {return fHdNdEpBkg;}
+  inline TH1F*    GetHdNdEpFrg()        const {return fHdNdEpFrg;}
+  inline TH1F*    GetHdNdEpSignal()     const {return fHdNdEpSignal;}
+  inline TH1F*    GetHdNdEpSignalOff()  const {return fHdNdEpSignalOff;}
+  inline TH1F*    GetHdNdESignal()      const {return fHdNdESignal;}
+  inline TGraph*  GetGEreso()           const {return fGEreso;} 
+  inline TGraph*  GetGEbias()           const {return fGEbias;}
+  inline TH2F*    GetMigMatrix()        const {return fMigMatrix;}
+  inline Float_t  GetLogJ()             const {return fLogJ;}
 
   inline Double_t GetdNdEpBkgIntegral()       {if(!fHdNdEpBkg) return 0; NormalizedNdEHisto(fHdNdEpBkg); return fHdNdEpBkg->GetBinContent(0);}
   inline Double_t GetdNdEpFrgIntegral()       {if(!fHdNdEpFrg) return 0; NormalizedNdEHisto(fHdNdEpFrg); return fHdNdEpFrg->GetBinContent(0);}
@@ -87,10 +88,11 @@ class Iact1dUnbinnedLkl : public virtual Lkl
   // Read input dN/dE files and related functions
   Int_t ResetdNdESignal();
   Int_t SetdNdESignal(TH1F* hdNdESignal);
+  Int_t AdddNdESignal(TString filename,Float_t br=1.0);
   Int_t SetdNdESignalFunction(TString function,Float_t p0=0,Float_t p1=0,Float_t p2=0,Float_t p3=0,Float_t p4=0,Float_t p5=0,Float_t p6=0,Float_t p7=0,Float_t p8=0,Float_t p9=0);
   Int_t AdddNdESignalFunction(TString function,Float_t p0=0,Float_t p1=0,Float_t p2=0,Float_t p3=0,Float_t p4=0,Float_t p5=0,Float_t p6=0,Float_t p7=0,Float_t p8=0,Float_t p9=0);
   Int_t SetdNdESignalFunction(TF1* function,Float_t emin=0,Float_t emax=1e9);
-  Int_t AdddNdESignalFunction(TF1* function,Float_t emin=0,Float_t emax=1e9);
+  Int_t AdddNdESignalFunction(TF1* function,Float_t emin=0,Float_t emax=1e9,Float_t br=1.0);
   Int_t SetTrueTau(Float_t truetau) {fTrueTau=truetau; return 0;}
   Int_t ReaddNdESignal(TString filename);
   Int_t ReaddNdEpSignal(TString filename);
