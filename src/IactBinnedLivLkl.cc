@@ -102,8 +102,8 @@ Int_t IactBinnedLivLkl::InterpretInputString(TString inputString)
       fTmax = 10.;//dataSet->GetEpmax();
 
       Double_t eventOnT,eventOffT;
-      dataSet->SetOnBranchAddressD("t",&eventOnT);
-      dataSet->SetOffBranchAddressD("t",&eventOffT);
+      dataSet->SetOnBranchAddress("t",&eventOnT);
+      dataSet->SetOffBranchAddress("t",&eventOffT);
 
       fOnSampleTime  = new Double_t[GetNon()];
       fOffSampleTime = new Double_t[GetNoff()];

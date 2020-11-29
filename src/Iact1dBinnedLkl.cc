@@ -109,11 +109,9 @@ static TMinuit* minuit = NULL;
 
 void GetRebinning(TH1F*hOn,TH1F*hOff,UInt_t minNInBin,UInt_t& inewbin,Double_t* newbin);
 
-
 ////////////////////////////////////////////////////////////////
 // 
 // String constructor
-//
 //
 Iact1dBinnedLkl::Iact1dBinnedLkl(TString inputString) :
   Lkl(gNPars,inputString,gName,gTitle), Iact1dUnbinnedLkl(inputString), JointLkl(inputString),
@@ -809,8 +807,6 @@ void GetRebinning(TH1F* hOn,TH1F* hOff,UInt_t minnevts,UInt_t& inewbin,Double_t*
     }
 }
 
-
-		
 ////////////////////////////////////////////////////////////////////////
 // joint likelihood function (-2logL) for all bins
 // To be minimized by TMinuit
