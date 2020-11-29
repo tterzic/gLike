@@ -22,6 +22,8 @@
 #include "IactEventListIrf.h"
 #include "PoissonLkl.h"
 
+#include <iomanip>
+
 ClassImp(IactBinnedLivLkl);
 
 using namespace std;
@@ -29,9 +31,6 @@ using namespace std;
 // class name and title
 static const TString  gName            = "IactBinnedLivLkl";
 static const TString  gTitle           = "Iact Binned Likelihood for LIV";
-
-static const Int_t    gNEnergyBins     = 100;        // default number of energy bins
-static const Int_t    gNTimeBins       = 100;        // default number of time bins
 
 // List of free parameters.
 
@@ -50,7 +49,7 @@ static TMinuit* minuit = NULL;
 //
 IactBinnedLivLkl::IactBinnedLivLkl(TString inputString) :
   Lkl(gNPars,inputString,gName,gTitle), Iact1dUnbinnedLkl(inputString), JointLkl(inputString),
-  fTauEDepFluct(kFALSE)
+  fTauEDepFluct(kFALSE), fMinEnergyBinContent(gDefMinBinContent), fMinTimeBinContent(gDefMinBinContent), fNEnergyBins(gDefNBins/*gNEnergyBins*/), fNTimeBins(gDefNBins/*gNTimeBins*/), fNRemovedEnergyBins(0), fNRemovedTimeBins(0), fTmin(gTmin), fTmax(gTmax), fHNOn(NULL), fHNOff(NULL), fOnSampleTime(NULL), fOffSampleTime(NULL)
 {
   if(InterpretInputString(inputString))
     cout << "IactBinnedLivLkl::IactBinnedLivLkl Warning: there were problems interpreting the input string" << endl;      
@@ -91,29 +90,52 @@ Int_t IactBinnedLivLkl::InterpretInputString(TString inputString)
     }
   else
     {
-      // extract data
-      Float_t eventOnT,eventOffT;
-      dataSet->SetOnBranchAddress("t",&eventOnT);
-      dataSet->SetOffBranchAddress("t",&eventOffT);
+      cout << "Iact1dUnbinnedLkl::InterpretInputString Warning: THERE is IactEventListIrf object in file " << inputfileName << endl;
 
-      fOnSampleTime  = new Float_t[GetNon()];
-      fOffSampleTime = new Float_t[GetNoff()];
+  TF1 *f2 = new TF1("f2", "[0]*TMath::Exp(-0.5*((x-[1])/[2])**2.)/([2]*TMath::Sqrt(2*TMath::Pi()))", 0., 100.);
+  f2->SetParameters(1.,50.,10.);
+
+      // extract data
+
+      // extract info from file 
+      fTmin = 0.;//dataSet->GetEpmin();
+      fTmax = 10.;//dataSet->GetEpmax();
+
+      Double_t eventOnT,eventOffT;
+      dataSet->SetOnBranchAddressD("t",&eventOnT);
+      dataSet->SetOffBranchAddressD("t",&eventOffT);
+
+      fOnSampleTime  = new Double_t[GetNon()];
+      fOffSampleTime = new Double_t[GetNoff()];
 
       for(Int_t i=0;i<GetNon();i++)
         {
           dataSet->GetOnEntry(i);
-          fOnSampleTime[i] = eventOnT;
+	  if(i==0) fTmin = (eventOnT-58497.)*86400.;
+	  if(i==(GetNon()-1)) fTmax = (eventOnT-58497.)*86400.;
+	  cout << setprecision(20) << " on " << i << " t = " << eventOnT << "in days or " << eventOnT*86400. << " in sec" << endl;
+          fOnSampleTime[i] = (eventOnT-58497.)*24.*60.*60.;
+	  if(fOnSampleTime[i]==-1) fOnSampleTime[i] = (i+1)*(90./GetNon());
+	  //if(fOnSampleTime[i]==-1) fOnSampleTime[i] = f2->GetRandom();
         }
       for(Int_t i=0;i<GetNoff();i++)
         {
           dataSet->GetOffEntry(i);
-          fOffSampleTime[i] = eventOffT;
+	  cout << setprecision(20) << " off " << i << " t = " << eventOffT << endl;
+          fOffSampleTime[i] = (eventOffT-58497.)*24.*60.*60.;
+	  if(fOffSampleTime[i]==-1) fOffSampleTime[i] = (i+1.5)*(90./GetNon());
+	  //if(fOffSampleTime[i]==-1) fOffSampleTime[i] = f2->GetRandom();
         }
 
       fTmin       = fOnSampleTime[0];
       fTmax       = fOnSampleTime[GetNon()-1];
     }
 
+      cout << "fTmin = " << fTmin << endl;
+      cout << "fTmax = " << fTmax << endl;
+      cout << "fEmin = " << GetEmin() << endl;
+      cout << "fEmax = " << GetEmax() << endl;
+      BuildAndBinOnOffHistos();
   return 0;
 }
 
@@ -153,7 +175,6 @@ void IactBinnedLivLkl::SetFunctionAndPars(Double_t ginit)
   // initialize the free (and nuisance) parameters
   SetParameters(gParName,pStart,pDelta);
 }		
-		
 
 ////////////////////////////////////////////////////////////////
 //
@@ -167,7 +188,18 @@ Int_t IactBinnedLivLkl::MakeChecks()
   if(IsChecked()) return 0;
 
   // add your checks here and try to mend whatever needs to be mended
-  
+
+  // Check the IactBinnedLivLkl specific part
+  /////////////////////////////////////////
+  // get the dN/dE' histograms for On and Off and check binning
+  if(BuildAndBinOnOffHistos())
+    {
+      cout << "IactBinnedLivLkl::MakeChecks (" << GetName() << ") Warning: problems building On and/or Off histos!" << endl;
+      return 1;
+    }
+
+cout << "Coucou" << endl;
+
   SetChecked();
   return 0;
 }
@@ -190,8 +222,10 @@ Int_t IactBinnedLivLkl::BuildAndBinOnOffHistos()
   if(!fHNOn || !fHNOff)
     {
       // Get the E' vs t distribution for On and Off events
-      TH2F* provHNOn  = GetHdNdEpOn(kFALSE,fNEnergyBins,fNTimeBins);
-      TH2F* provHNOff = GetHdNdEpOff(kFALSE,fNEnergyBins,fNTimeBins);
+      TH2F* provHNOn  = GetHdNdEpOn(kFALSE,10,10);
+      TH2F* provHNOff = GetHdNdEpOff(kFALSE,10,10);
+      //TH2F* provHNOn  = GetHdNdEpOn(kFALSE,fNEnergyBins,fNTimeBins);
+      //TH2F* provHNOff = GetHdNdEpOff(kFALSE,fNEnergyBins,fNTimeBins);
 
       if(!provHNOn || !provHNOff)
         {
@@ -201,36 +235,55 @@ Int_t IactBinnedLivLkl::BuildAndBinOnOffHistos()
           return 1;
         }
 
+provHNOn->SaveAs("./provHNOn.root");
+provHNOff->SaveAs("./provHNOff.root");
+
       Bool_t done=kFALSE;
       fNRemovedEnergyBins=0;
       fNRemovedTimeBins=0;
-/*      // Rebin if necessary and requested
-      if(fMinBinContent>0)
+      // Rebin if necessary and requested
+      if(fMinEnergyBinContent>0)
         {
           UInt_t nnewbins;
-          Double_t* newbin = new Double_t[fNBins+1];
-          GetRebinning(provHNOn,provHNOff,fMinBinContent,nnewbins,newbin);
+          Double_t* newbin = new Double_t[fNEnergyBins+1];
+          cout << "Rebinning: " << fNEnergyBins << " --> " << nnewbins << endl;
+          GetRebinning(provHNOn,provHNOff,fMinEnergyBinContent,nnewbins,newbin);
+          for (int lol=0; lol<nnewbins+1; lol++) cout << "final rebinning = " << lol << " bin = " << newbin[lol] << endl;
 
-          if(nnewbins<fNBins)
+          cout << "Rebinning: " << fNEnergyBins << " --> " << nnewbins << endl;
+
+          if(nnewbins<fNEnergyBins)
             {
-              fNRemovedBins = fNBins-nnewbins;
-              cout << "Iact1dBinnedLkl::BuildAndBinOnOffHistos (" << GetName() << ") Message: fHNON/fHNOff original number of bins = " << fNBins << ", rebinned to " << nnewbins << " bins to keep minimum of " << fMinBinContent << " events per bin" << endl;
+              fNRemovedEnergyBins = fNEnergyBins-nnewbins;
+              cout << "Iact1dBinnedLkl::BuildAndBinOnOffHistos (" << GetName() << ") Message: fHNON/fHNOff original number of energy bins = " << fNEnergyBins << ", rebinned to " << nnewbins << " bins to keep minimum of " << fMinEnergyBinContent << " events per energy bin" << endl;
 
               // Get the rebinned On/Off histograms
-              TH1F* hRebinOn  =  (TH1F*)  provHNOn->Rebin(nnewbins,"hRebinOn", newbin);
-              TH1F* hRebinOff =  (TH1F*) provHNOff->Rebin(nnewbins,"hRebinOff",newbin);
+              TH2F* hRebinOn = new TH2F("hRebinOn", "E' vs t distribution of On events",fNTimeBins,provHNOn->GetXaxis()->GetXmin(),provHNOn->GetXaxis()->GetXmax(),nnewbins,newbin); //  =  (TH1F*)  provHNOn->Rebin(nnewbins,"hRebinOn", newbin);
+              TH2F* hRebinOff = new TH2F("hRebinOff", "E' vs t distribution of Off events",fNTimeBins,provHNOff->GetXaxis()->GetXmin(),provHNOff->GetXaxis()->GetXmax(),nnewbins,newbin); // =  (TH1F*) provHNOff->Rebin(nnewbins,"hRebinOff",newbin);
+              for(Int_t ibin=0;ibin<fNTimeBins;ibin++)
+                {
+                  for(Int_t jbin=0;jbin<fNEnergyBins;jbin++)
+                    {
+                      hRebinOn->Fill(provHNOn->GetXaxis()->GetBinCenter(ibin+1),provHNOn->GetYaxis()->GetBinCenter(jbin+1),provHNOn->GetBinContent(ibin+1,jbin+1));
+                      hRebinOff->Fill(provHNOff->GetXaxis()->GetBinCenter(ibin+1),provHNOff->GetYaxis()->GetBinCenter(jbin+1),provHNOff->GetBinContent(ibin+1,jbin+1));
+                    }
+                }
               hRebinOn->SetDirectory(0);
               hRebinOff->SetDirectory(0);
 
               // replace the fHNOn and fHNOff histograms by the rebinned ones
-              fHNOn  = new TH1I("fHNOn", "E' distribution of On events", nnewbins,newbin);
-              fHNOff = new TH1I("fHNOff","E' distribution of Off events",nnewbins,newbin);
+              fHNOn  = new TH2I("fHNOn", "E' vs t distribution of On events",fNTimeBins,provHNOn->GetXaxis()->GetXmin(),provHNOn->GetXaxis()->GetXmax(),nnewbins,newbin);
+              fHNOff = new TH2I("fHNOff","E' vs t distribution of Off events",fNTimeBins,provHNOff->GetXaxis()->GetXmin(),provHNOff->GetXaxis()->GetXmax(),nnewbins,newbin);
               fHNOn->SetDirectory(0);
               fHNOff->SetDirectory(0);
-              for(Int_t ibin=0;ibin<nnewbins;ibin++)
+
+              for(Int_t ibin=0;ibin<fNTimeBins;ibin++)
                 {
-                  fHNOn->SetBinContent(ibin+1,Int_t(hRebinOn->GetBinContent(ibin+1)));
-                  fHNOff->SetBinContent(ibin+1,Int_t(hRebinOff->GetBinContent(ibin+1)));
+                  for(Int_t jbin=0;jbin<nnewbins;jbin++)
+                    {
+                      fHNOn->SetBinContent(ibin+1,jbin+1,Int_t(hRebinOn->GetBinContent(ibin+1,jbin+1)));
+                      fHNOff->SetBinContent(ibin+1,jbin+1,Int_t(hRebinOff->GetBinContent(ibin+1,jbin+1)));
+                    }
                 }
 
               delete hRebinOn;
@@ -240,7 +293,7 @@ Int_t IactBinnedLivLkl::BuildAndBinOnOffHistos()
 
           delete [] newbin;
         }
-*/
+
       if(!done)
         {
           fHNOn  = new TH2I("fHNOn", "E' vs t distribution of On events",fNTimeBins,provHNOn->GetXaxis()->GetXmin(),provHNOn->GetXaxis()->GetXmax(),fNEnergyBins,provHNOn->GetYaxis()->GetXmin(),provHNOn->GetYaxis()->GetXmax());
@@ -291,6 +344,9 @@ Int_t IactBinnedLivLkl::BuildAndBinOnOffHistos()
 
 
   if(!binsAreOk) return 1;*/
+fHNOn->SaveAs("./fHNOn.root");
+fHNOff->SaveAs("./fHNOff.root");
+
 
   return 0;
 }
@@ -303,6 +359,7 @@ Int_t IactBinnedLivLkl::BuildAndBinOnOffHistos()
 //
 Int_t IactBinnedLivLkl::ConfigureJointLkl()
 {
+
   if(!fHNOn || !fHNOff)
     {
       cout << "Iact1dBinnedLkl::ConfigureJointLkl (" << GetName() << ") Warning: On and/or Off histograms do no exist" << endl;
@@ -318,29 +375,18 @@ Int_t IactBinnedLivLkl::ConfigureJointLkl()
       for(Int_t jbin=0;jbin<fNEnergyBins-fNRemovedEnergyBins;jbin++)
         {
           PoissonLkl* pLkl = new PoissonLkl(fHNOn->GetBinContent(ibin+1,jbin+1),fHNOff->GetBinContent(ibin+1,jbin+1),GetTau(),(fTauEDepFluct? GetDTau() : 0),0,Form("%s_BinT_%d_BinE_%d",GetName(),ibin,jbin));
-          Double_t lemin  = fHNOn->GetBinLowEdge(ibin+1);
-          Double_t lemax  = fHNOn->GetBinLowEdge(ibin+1)+fHNOn->GetBinWidth(ibin+1);
-    
-          Double_t weight = 0.;//IntegrateLogE(GetHdNdEpSignal(),lemin,lemax);
+          //Double_t lemin  = fHNOn->GetBinLowEdge(ibin+1);
+          //Double_t lemax  = fHNOn->GetBinLowEdge(ibin+1)+fHNOn->GetBinWidth(ibin+1);
+   
+	  Double_t sum = 0.;
+          for(Int_t k = 0; k < fNTimeBins-fNRemovedTimeBins; k++) {
+            sum += fHdNdESignal->GetBinContent(k+1,jbin+1);
+	  }
+
+          Double_t weight = 1./(fHdNdESignal->GetBinContent(ibin+1,jbin+1)*fHdNdESignal->GetXaxis()->GetBinWidth(ibin+1)*fHdNdESignal->GetYaxis()->GetBinWidth(jbin+1)/sum);
+          //Double_t weight = fHdNdESignal->GetBinContent(ibin+1,jbin+1)/fHdNdESignal->GetEntries();
+          //Double_t weight = 1./(fNTimeBins*fNEnergyBins);//IntegrateLogE(GetHdNdEpSignal(),lemin,lemax);
           pLkl->SetUnitsOfG(weight>0? weight : 0);
-    
-          // is there signal leakeage in the Off region?
-/*          if(GetHdNdEpSignalOff())
-            {
-              Double_t gfractioninoff = IntegrateLogE(GetHdNdEpSignalOff(),lemin,lemax)*GetdNdEpSignalOffIntegral()/(weight*GetdNdEpSignalIntegral());
-              pLkl->SetGFractionInOff(gfractioninoff);
-            }
-    
-          // are there gamma-ray foreground events in the signal region?
-          if(GetHdNdEpFrg())
-            {
-              Double_t nFrgEvts = IntegrateLogE(GetHdNdEpFrg(),lemin,lemax)*GetdNdEpFrgIntegral();
-              pLkl->SetFrgNEvents(nFrgEvts);
-            }
-    
-          // is b a fixed (as opposed to nuisance) parameter? mostly for tests
-          if(fKnownBackground) pLkl->SetKnownBackground();
-  */  
     
           AddSample(pLkl);
     
@@ -376,21 +422,29 @@ TH2F* IactBinnedLivLkl::GetHdNdEpOn(Bool_t isDifferential,Int_t nbinsE,Int_t nbi
   if(!fHNOn || (nbinsE>0 && nbinsE!=fNEnergyBins-fNRemovedEnergyBins) || (nbinsT>0 && nbinsT!=fNTimeBins-fNRemovedTimeBins))
     {
       // we need a positive number of bins
-      if(nbinsE<=0) nbinsE = gNEnergyBins;
-      if(nbinsT<=0) nbinsT = gNTimeBins;
-    
+      if(nbinsE<=0) nbinsE = gDefNBins; //gNEnergyBins;
+      if(nbinsT<=0) nbinsT = gDefNBins; //gNTimeBins;
+
+cout << "TEST1" << endl;
+cout << nbinsT << " " << fTmin << " " << fTmax << " " << nbinsE << " " << GetEmin() << " " << GetEmax() << endl;
+
       // create histo
-      TH2F* h = new TH2F("dNdEpOn","dN/dE' vs t for On events",nbinsT,fTmin,fTmax,nbinsE,TMath::Log10(GetEmin()),TMath::Log10(GetEmax()));
+      //TH2F* h = new TH2F("dNdEpOn","dN/dE' vs t for On events",nbinsT,fTmin,fTmax,nbinsE,TMath::Log10(GetEmin()),TMath::Log10(GetEmax()));
+      TH2F* h = new TH2F("dNdEpOn","dN/dE' vs t for On events",nbinsT,fTmin,fTmax,nbinsE,TMath::Log10(150.),TMath::Log10(2500.));
       h->SetDirectory(0);
       h->SetXTitle("t [s]");
       h->SetYTitle("log_{10}(E' [GeV])");
       h->SetZTitle("dN/dE' [GeV^{-1}]");
    
-      const Float_t *onSample = GetOnSample(); 
+      const Float_t *onSample = Iact1dUnbinnedLkl::GetOnSample(); 
       // fill histo
       for(Int_t i=0;i<GetNon();i++)
-        h->Fill(fOnSampleTime[i],onSample[i]);
+        {
+		cout << "onSample[i] = " << onSample[i] << endl;
+          h->Fill(fOnSampleTime[i],onSample[i]);
+	}
     
+cout << "TEST123" << endl;
       // divide by bin width
       if(h->GetEntries()>0)
         if(isDifferential)
@@ -405,6 +459,16 @@ TH2F* IactBinnedLivLkl::GetHdNdEpOn(Bool_t isDifferential,Int_t nbinsE,Int_t nbi
                   h->SetBinContent(ibin+1,jbin+1,h->GetBinContent(ibin+1,jbin+1)/deltaE);
                 }
             }
+cout << "TEST1234" << endl;
+
+          /*for(Int_t ibin=0;ibin<nbinsT;ibin++)
+            {
+              for(Int_t jbin=0;jbin<nbinsE;jbin++)
+                {
+                  
+		}
+	    }*/
+
       return h;
     }
 
@@ -471,11 +535,14 @@ TH2F* IactBinnedLivLkl::GetHdNdEpOff(Bool_t isDifferential,Int_t nbinsE,Int_t nb
   if(!fHNOff || (nbinsE>0 && nbinsE!=fNEnergyBins-fNRemovedEnergyBins) || (nbinsT>0 && nbinsT!=fNTimeBins-fNRemovedTimeBins))
     {
       // we need a positive number of bins
-      if(nbinsE<=0) nbinsE = gNEnergyBins;
-      if(nbinsT<=0) nbinsT = gNTimeBins;
+      if(nbinsE<=0) nbinsE = gDefNBins; //gNEnergyBins;
+      if(nbinsT<=0) nbinsT = gDefNBins; //gNTimeBins;
     
+cout << "TEST2" << endl;
+
       // create histo
-      TH2F* h = new TH2F("dNdEpOff","dN/dE' vs t for Off events",nbinsT,fTmin,fTmax,nbinsE,TMath::Log10(GetEmin()),TMath::Log10(GetEmax()));
+      //TH2F* h = new TH2F("dNdEpOff","dN/dE' vs t for Off events",nbinsT,fTmin,fTmax,nbinsE,TMath::Log10(GetEmin()),TMath::Log10(GetEmax()));
+      TH2F* h = new TH2F("dNdEpOff","dN/dE' vs t for Off events",nbinsT,fTmin,fTmax,nbinsE,TMath::Log10(150.),TMath::Log10(2500.));
       h->SetDirectory(0);
       h->SetXTitle("t [s]");
       h->SetYTitle("log_{10}(E' [GeV])");
@@ -500,6 +567,7 @@ TH2F* IactBinnedLivLkl::GetHdNdEpOff(Bool_t isDifferential,Int_t nbinsE,Int_t nb
                   h->SetBinContent(ibin+1,jbin+1,h->GetBinContent(ibin+1,jbin+1)/deltaE);
                 }
             }
+cout << "TEST234" << endl;
       return h;
     }
 
@@ -547,6 +615,141 @@ TH2F* IactBinnedLivLkl::GetHdNdEpOff(Bool_t isDifferential,Int_t nbinsE,Int_t nb
       }
 
   return h;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+// 
+// Simulate list of On and Off events
+// according to the total pdf described by fHdNdEpBkg and fHdNdEpSignal
+// and the observation time in fObsTime and tau taking randomly from a
+// gaussian of mean fTau and mean fDTau
+// seed    (default 0) = seed for random generator
+// meanG   (default 0) = mean G value
+//
+// IF meanG<0, do not simulate independent ON events, use OFF sample
+// also as ON
+//
+// Return 0 in case of success
+//        1 otherwise
+//
+Int_t IactBinnedLivLkl::SimulateDataSamples(UInt_t seed,Float_t meanG)
+{
+  if(meanG<0) meanG=0;
+  
+  // Sanity checks
+
+  // compute weights for different pdf components
+  TRandom3* rdm     = new TRandom3(seed);
+  TRandom*  saverdm = gRandom;
+  gRandom = rdm;
+
+  TH2F* realHdNdEpBkg       = NULL;
+  TH2F* realHdNdEpSignalOff = NULL;
+
+  if(GetRealBkgAndGoffHistos(rdm,realHdNdEpBkg,realHdNdEpSignalOff)) return 1;
+
+  //Float_t meanB    = GetdNdEpBkgIntegral()*fObsTime;  
+  Float_t meanB    = 200;  
+  Float_t meanBoff = realHdNdEpBkg->GetBinContent(0)*GetObsTime()*GetTau();
+  //Float_t meanF    = GetdNdEpFrgIntegral()*fObsTime;
+  //Float_t meanGoff = ((fHdNdEpSignal && realHdNdEpSignalOff)? meanG*realHdNdEpSignalOff->GetBinContent(0)/GetdNdEpSignalIntegral() : 0); 
+  //Float_t meanNon  = meanB+meanF+meanG;
+  //Float_t meanNoff = meanBoff+meanGoff;
+  Float_t meanNon  = meanB+meanG;
+  Float_t meanNoff = meanBoff;
+
+  // setup histogram to build pdfs
+  TH2F* hBkgBinIntegrated     = new TH2F("hBkgBinIntegrated",     "Histogram for Off background event generation",          fNFineLEBins,fFineLEMin,fFineLEMax,fNFineTBins,fFineTMin,fFineTMax);
+  TH2F* hRealBkgBinIntegrated = new TH2F("hRealBkgBinIntegrated", "Histogram for  On background event generation",          fNFineLEBins,fFineLEMin,fFineLEMax,fNFineTBins,fFineTMin,fFineTMax);
+  TH2F* hFrgBinIntegrated     = new TH2F("hFrgBinIntegrated",     "Histogram for foreground event generation",              fNFineLEBins,fFineLEMin,fFineLEMax,fNFineTBins,fFineTMin,fFineTMax);
+  TH2F* hSigBinIntegrated     = new TH2F("hSigBinIntegrated",     "Histogram for signal event generation",                  fNFineLEBins,fFineLEMin,fFineLEMax,fNFineTBins,fFineTMin,fFineTMax);
+  TH2F* hSigOffBinIntegrated  = new TH2F("hSigOffBinIntegrated",  "Histogram for signal event generation in the Off region",fNFineLEBins,fFineLEMin,fFineLEMax,fNFineTBins,fFineTMin,fFineTMax);
+  TH2F* hOnBinIntegrated      = new TH2F("hOnBinIntegrated",      "Histogram for  On event generation",                     fNFineLEBins,fFineLEMin,fFineLEMax,fNFineTBins,fFineTMin,fFineTMax);
+  TH2F* hOffBinIntegrated     = new TH2F("hOffBinIntegrated",     "Histogram for Off event generation",                     fNFineLEBins,fFineLEMin,fFineLEMax,fNFineTBins,fFineTMin,fFineTMax);
+  
+  hBkgBinIntegrated->SetDirectory(0);
+  hRealBkgBinIntegrated->SetDirectory(0);
+  hFrgBinIntegrated->SetDirectory(0);
+  hSigBinIntegrated->SetDirectory(0);
+  hSigOffBinIntegrated->SetDirectory(0);
+  hOnBinIntegrated->SetDirectory(0);
+  hOffBinIntegrated->SetDirectory(0);
+
+  // build pdf
+  /*for(Int_t ibin = 0;ibin<fNFineBins;ibin++)
+    {
+      Double_t leminbin = hBkgBinIntegrated->GetBinLowEdge(ibin+1);
+      Double_t lemaxbin = leminbin+hBkgBinIntegrated->GetBinWidth(ibin+1);
+      if(TMath::Power(10,leminbin) < fEpmax && TMath::Power(10,lemaxbin) > fEpmin)
+	{
+	  Float_t deltaE   = TMath::Power(10,lemaxbin)-TMath::Power(10,leminbin); 
+	  hBkgBinIntegrated->SetBinContent(ibin+1,fHdNdEpBkg->GetBinContent(ibin+1)*deltaE);
+	  hRealBkgBinIntegrated->SetBinContent(ibin+1,realHdNdEpBkg->GetBinContent(ibin+1)*deltaE);
+	  if(fHdNdEpSignal)
+	    hSigBinIntegrated->SetBinContent(ibin+1,fHdNdEpSignal->GetBinContent(ibin+1)*deltaE);
+	  else
+	    hSigBinIntegrated->SetBinContent(ibin+1,0);
+	  if(fHdNdEpSignalOff)
+	    hSigOffBinIntegrated->SetBinContent(ibin+1,realHdNdEpSignalOff->GetBinContent(ibin+1)*deltaE);
+	  else
+	    hSigOffBinIntegrated->SetBinContent(ibin+1,0);
+	  if(fHdNdEpFrg)
+	    hFrgBinIntegrated->SetBinContent(ibin+1,fHdNdEpFrg->GetBinContent(ibin+1)*deltaE);
+	  else
+	    hFrgBinIntegrated->SetBinContent(ibin+1,0);
+	}
+      else
+	{
+	  hBkgBinIntegrated->SetBinContent(ibin+1,0);
+	  hRealBkgBinIntegrated->SetBinContent(ibin+1,0);
+	  hSigBinIntegrated->SetBinContent(ibin+1,0);
+	  hSigOffBinIntegrated->SetBinContent(ibin+1,0);
+	  hFrgBinIntegrated->SetBinContent(ibin+1,0);
+	}
+    }*/
+
+
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Histograms hdNdEpBkg and hdNdEpSignalOff will contain same entries as fHdNdEpBkg and fHdNdEpSignalOff,
+// respectively, but with normalization fluctuating according to the uncertainty in tau
+// Note that fHdNdEpBkg is the expected distribution of background events in the On region
+// and fHdNdEpSignalOff the expected distribution of signal events in the total Off region
+// (total meaning that if tau=3 the effective area to consder is that of the three subregions)
+//
+Int_t IactBinnedLivLkl::GetRealBkgAndGoffHistos(TRandom3* rdm,TH2F*& hdNdEpBkg,TH2F*& hdNdEpSignalOff) 
+{
+  // create new histos with contents of the existing ones
+  //if(fHdNdEpBkg) hdNdEpBkg = new TH1F(*fHdNdEpBkg);
+  if(fHdNdEpSignal) hdNdEpBkg = new TH2F(*fHdNdEpSignal);
+  else
+    {
+      cout << "IactBinnedLivLkl::GetRealBkgAndGoffHistos Warning: fHdNdEpBkg histo does not exist" << endl;
+      return 1;
+    }
+  if(fHdNdEpSignalOff) hdNdEpSignalOff = new TH2F(*fHdNdEpSignalOff);
+
+  // if no uncertainty in tau, that's all we need to do
+  if(GetDTau()<=0) return 0;
+
+  // chose the true tau for this simulated sample according to the pdf
+  //GetTrueTau() = rdm->Gaus(GetTau(),GetDTau());
+  
+  if(GetTrueTau()>0)
+    {
+      hdNdEpBkg->SetBinContent(0,hdNdEpBkg->GetBinContent(0)*GetTrueTau()/GetTau());
+      if(hdNdEpSignalOff)
+	hdNdEpSignalOff->SetBinContent(0,hdNdEpSignalOff->GetBinContent(0)*GetTrueTau()/GetTau());
+    }
+  else
+    {
+      cout << "IactBinnedLivLkl::GetRealBkgAndGoffHistos Error: negative or null tau value, we cannot work like that!" << endl;
+      return 1;
+    }
+  
+  return 0;
 }
 
 //////////////////////////////////////////////////////////////////
@@ -616,6 +819,10 @@ Int_t IactBinnedLivLkl::SetdNdESignalFunction(TString function,Float_t p0,Float_
 // Add to a previously existing dN/dE histogram for signal according to 
 // given <function> and parameters <p0>, <p1>, ...
 //
+// If <function>=="gaussLIV"
+// <p0> = "delay" eta (linear: GeV/s ; quadraitc: GeV^2/s)
+// <p1> = dependency of the delay to the energy (1: linear; 2: quadratic)
+//
 // If <function>=="powerlawLIV"
 // <p0> = "delay" eta (linear: GeV/s ; quadraitc: GeV^2/s)
 // <p1> = dependency of the delay to the energy (1: linear; 2: quadratic)
@@ -630,7 +837,262 @@ Int_t IactBinnedLivLkl::SetdNdESignalFunction(TString function,Float_t p0,Float_
 //
 Int_t IactBinnedLivLkl::AdddNdESignalFunction(TString function,Float_t p0,Float_t p1,Float_t p2,Float_t p3,Float_t p4,Float_t p5,Float_t p6,Float_t p7,Float_t p8,Float_t p9)
 {
-  return 1;
+
+  if(function=="constantLIV")
+    {
+	    cout << "constantLIV" << endl;
+      Float_t Delay       = p0;
+      Float_t EDependency = p1;
+      //Float_t Emin        = p2;
+      //Float_t Emax        = p3;
+      Float_t Power       = p2;
+      //Float_t Mean        = p5;
+      //Float_t StdDev      = p6;
+      //Float_t Tmin        = p7;
+      //Float_t Tmax        = p8;
+      Int_t nevents = 100000;
+      TF1 *f1 = new TF1("f1", "[0]*x**(-[1])", GetEmin()/1000., GetEmax()/1000.);
+      f1->SetParameters(1.,Power);
+      f1->SetNpx(10000);
+      Double_t E2 = 0.;
+   
+      fHdNdESignal = new TH2F("fHdNdESignal","fHdNdESignal",fNTimeBins,(1)*(90./nevents),(nevents)*(90./nevents),fNEnergyBins,GetEmin()/1000.,GetEmax()/1000.);
+      for (int i=0; i<nevents; i++)
+        {
+          E2 = f1->GetRandom();
+          fHdNdESignal->Fill((i+1)*(90./nevents),E2);
+        }
+      TCanvas *c1 = new TCanvas("c1","c1",900,300);
+      c1->Divide(3,3);
+      c1->cd(1);
+      f1->Draw();
+      c1->cd(3);
+      fHNOn->Draw("COLZ");
+      c1->cd(4);
+      fHNOff->Draw("COLZ");
+      c1->cd(5);
+      fHdNdESignal->Draw("COLZ");
+      c1->cd(6);
+      c1->cd(7);
+      c1->cd(8);
+      c1->cd(9);
+    }
+
+  if(function=="gaussLIV")
+    {
+	    cout << "gaussLIV" << endl;
+
+  Float_t Delay       = p0;
+  Float_t EDependency = p1;
+  Float_t Emin        = p2;
+  Float_t Emax        = p3;
+  Float_t Power       = p4;
+  Float_t Mean        = p5;
+  Float_t StdDev      = p6;
+  Float_t Tmin        = p7;
+  Float_t Tmax        = p8;
+
+  TF1 *f1 = new TF1("f1", "[0]*x**(-[1])", Emin, Emax);
+  f1->SetParameters(1.,Power);
+  f1->SetNpx(10000);
+  //f1->SetRange(1.,10000.);
+
+  TF1 *f2 = new TF1("f2", "[0]*TMath::Exp(-0.5*((x-[1])/[2])**2.)/([2]*TMath::Sqrt(2*TMath::Pi()))", Tmin, Tmax);
+  f2->SetParameters(1.,Mean,StdDev);
+
+  Double_t E = 0.;
+  Double_t E2 = 0.;
+  Double_t E3 = 0.;
+  Double_t t = 0.;
+  Double_t t_shifted = 0.;
+  Double_t t_shifted2 = 0.;
+  Int_t nevents = 100000;
+  TH1D *h1 = new TH1D("h1","Random Distribution from GetRandom()",20,Emin,Emax);
+  TH1D *h2 = new TH1D("h2","Random Distribution from GetRandom()",50,Tmin,Tmax);
+  TH1D *h3 = new TH1D("h3","Random Distribution from GetRandom() + LIV shift",50,Tmin,Tmax);
+  TH2D *h4 = new TH2D("h4","E vs Random Distribution from GetRandom()",6,Tmin,Tmax,6,Emin,Emax);
+  TH2D *h5 = new TH2D("h5","E vs Random Distribution from GetRandom() + LIV shift",6,Tmin,Tmax,6,Emin,Emax);
+  //TH2D *h4 = new TH2D("h4","E vs Random Distribution from GetRandom()",50,Tmin,Tmax,20,Emin,Emax);
+  //TH2D *h5 = new TH2D("h5","E vs Random Distribution from GetRandom() + LIV shift",50,Tmin,Tmax,20,Emin,Emax);
+  fHNOn = new TH2I("fHNOn","fHNOn",6,Tmin,Tmax,6,Emin,Emax);
+  fHNOff = new TH2I("fHNOff","fHNOff",6,Tmin,Tmax,6,Emin,Emax);
+  fHdNdESignal = new TH2F("fHdNdESignal","fHdNdESignal",6,Tmin,Tmax,6,Emin,Emax);
+  fNFineTBins=6, fFineTMin=Tmin,fFineTMax=Tmax,fNFineLEBins=6,fFineLEMin=Emin,fFineLEMax=Emax;
+  fNTimeBins=6,fNEnergyBins=6;
+  fNRemovedTimeBins=0,fNRemovedEnergyBins=0;
+  //fUnitsOfG = (Tmax-Tmin)*(Emax-Emin);
+  //SetUnitsOfG((Tmax-Tmin)*(Emax-Emin));
+  //ResetdNdESignal();
+  for (int i=0; i<nevents; i++)
+    {
+      E = f1->GetRandom();
+      E2 = f1->GetRandom();
+      E3 = f1->GetRandom();
+      t = f2->GetRandom();
+      //t_shifted = f2->GetRandom();
+      t_shifted2 = f2->GetRandom() + Delay*TMath::Power(E,EDependency);
+      t_shifted = t + Delay*TMath::Power(E,EDependency);
+      h1->Fill(E);
+      h2->Fill(t);
+      h3->Fill(t_shifted);
+      h4->Fill(t,E);
+      h5->Fill(t_shifted,E);
+      //fHdNdESignal->Fill(t,E);
+      fHdNdESignal->Fill(t_shifted,E2);
+      //fHdNdEpSignal->Fill(t_shifted2,E3);
+      fHNOn->Fill(t_shifted,E2);
+      fHNOff->Fill(t,E);
+   }
+
+  TCanvas *c1 = new TCanvas("c1","c1",900,300);
+  c1->Divide(3,3);
+  c1->cd(1);
+  f1->Draw();
+  c1->cd(2);
+  f2->Draw();
+  c1->cd(3);
+  fHNOn->Draw("COLZ");
+  c1->cd(4);
+  h1->Draw();
+  c1->cd(5);
+  h2->Draw();
+  c1->cd(6);
+  h3->Draw();
+  c1->cd(7);
+  fHdNdESignal->Draw("COLZ");
+  c1->cd(8);
+  h4->Draw("COLZ");
+  c1->cd(9);
+  h5->Draw("COLZ");
+
+  Float_t log10Emin = TMath::Log10(Emin);
+  Float_t log10Emax = TMath::Log10(Emax);
+    }
+  return 0;
+}
+
+//////////////////////////////////////////////////////////////////
+// Fill newbin with optimal binning which contains at least minnevts
+// in all bins of hOn and hOff, and fill inewbin with the number of
+// bins
+void IactBinnedLivLkl::GetRebinning(TH2F* hOn,TH2F* hOff,UInt_t minnevts,UInt_t& inewbin,Double_t* newbin)
+{
+  Int_t nibinsT=hOn->GetNbinsX();
+  Int_t nibinsE=hOn->GetNbinsY();
+
+  inewbin = 0;
+  newbin[0] = hOn->GetYaxis()->GetBinLowEdge(1);
+  Int_t inewbin2 = 0;
+  Double_t* newbin2 = new Double_t[fNEnergyBins+1];
+  newbin2[0] = hOn->GetYaxis()->GetBinLowEdge(1);
+  Int_t inewbin3 = 0;
+  Double_t* newbin3 = new Double_t[fNEnergyBins+1];
+  newbin3[0] = hOn->GetYaxis()->GetBinLowEdge(1);
+
+  cout << "ca commence num bin x = " << nibinsT << " num bin y = " << nibinsE << endl;
+
+  for(Int_t ibinT=0;ibinT<nibinsT;ibinT++)
+    {
+  cout << "on change de bin de T: " << ibinT << endl;
+      Int_t tmpinewbin = 0;
+      Double_t* tmpnewbin = new Double_t[fNEnergyBins+1];
+      tmpnewbin[0] = hOn->GetYaxis()->GetBinLowEdge(1);
+      for(Int_t ibinE=0;ibinE<nibinsE;ibinE++,tmpinewbin++)
+        {
+          Int_t non  = hOn->GetBinContent(ibinT+1,ibinE+1);
+          Int_t noff = hOff->GetBinContent(ibinT+1,ibinE+1);
+	  cout << "non = " << non << " noff = " << noff << endl;
+          while((non<minnevts || noff<minnevts) && ibinE<nibinsE-1)
+            {
+              ibinE++;
+              non  += hOn->GetBinContent(ibinT+1,ibinE+1);
+              noff += hOff->GetBinContent(ibinT+1,ibinE+1);
+	      cout << " WHILE ACTIVATED non = " << non << " noff = " << noff << endl;
+            }
+
+          tmpnewbin[tmpinewbin+1] = hOn->GetYaxis()->GetBinLowEdge(ibinE+1)+hOn->GetYaxis()->GetBinWidth(ibinE+1);
+
+          if((non<minnevts || noff<minnevts) && tmpinewbin>1) // last bin does not comply with minimal statistics condition
+            {
+              tmpnewbin[tmpinewbin] = tmpnewbin[tmpinewbin+1];
+              tmpinewbin--;
+            }
+        }
+      if(ibinT==0)
+        {
+          inewbin3 = tmpinewbin;
+          //newbin3 = tmpnewbin;
+          //inewbin2 = 0;
+          //inewbin3 = 0;
+          inewbin2 = tmpinewbin;
+          //newbin2 = tmpnewbin;
+          for (int lol=0; lol<tmpinewbin+1; lol++)
+            {
+               //inewbin3++;
+               //inewbin2++;
+	       newbin2[lol] = tmpnewbin[lol];
+	       newbin3[lol] = tmpnewbin[lol];
+               cout << "tessssst lol = " << lol << " bin = " << newbin3[lol] << endl;
+            }
+        }
+      else
+        {
+          inewbin3 = 0;
+          delete [] newbin3;
+          newbin3 = new Double_t[fNEnergyBins+1];
+          newbin3[0] = hOn->GetYaxis()->GetBinLowEdge(1);
+          Int_t i=1, j=1;
+          for (int k=1; k<inewbin2+1 && i<inewbin2+1 && j<tmpinewbin+1; k++)
+            {
+              if(TMath::Abs(newbin2[i]-tmpnewbin[j]) < 0.001)
+                {
+		     cout << "je suis en 1 et k = " << k << " et i = " << i << " et newbin2 = " << newbin2[i] << " et newbin3 = " << newbin3[k] << " et j = " << j << " et tmpnewbin = " << tmpnewbin[j] << endl;
+                  if(k>0 && TMath::Abs(newbin2[i]-newbin3[k-1]) > 0.001)
+		    {
+		      newbin3[k] = newbin2[i];
+		      inewbin3++;
+		      i++;
+		      j++;
+		    }
+                }
+	      else if(newbin2[i] > tmpnewbin[j])
+                {
+		     //cout << "je suis en 2 et k = " << k << endl;
+		     cout << "je suis en 2 et k = " << k << " et i = " << i << " et newbin2 = " << newbin2[i] << " et newbin3 = " << newbin3[k] << " et j = " << j << " et tmpnewbin = " << tmpnewbin[j] << endl;
+		  //newbin[k] = newbin2[i];
+		  j++;
+		  k--;
+                }
+	      else if(newbin2[i] < tmpnewbin[j])
+                {
+		     //cout << "je suis en 3 et k = " << k << endl;
+		     cout << "je suis en 3 et k = " << k << " et i = " << i << " et newbin2 = " << newbin2[i] << " et newbin3 = " << newbin3[k] << " et j = " << j << " et tmpnewbin = " << tmpnewbin[j] << endl;
+		  //newbin[k] = tmpnewbin[j];
+		  i++;
+		  k--;
+                }
+            }
+        }
+      cout << "res pour bin T = " << ibinT << " tmpinewbin = " << tmpinewbin << endl;
+      inewbin2 = inewbin3;
+      //newbin2 = newbin3;
+      delete [] newbin2;
+      newbin2 = new Double_t[fNEnergyBins+1];
+      for (int lol=0; lol<inewbin3+1; lol++)
+        {
+	  //inewbin2++;
+	  newbin2[lol]=newbin3[lol];
+          cout << "lol = " << lol << " bin = " << newbin3[lol] << " et bin 2 = " << newbin2[lol] << endl;
+        }
+      delete [] tmpnewbin;
+    }
+    inewbin = inewbin3;
+    //newbin = newbin3;
+    for (int lol=0; lol<inewbin3+1; lol++)
+      {
+        newbin[lol] = newbin3[lol];
+	//inewbin++;
+      }
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -651,6 +1113,20 @@ void binnedLivLkl(Int_t &fpar, Double_t *gin, Double_t &f, Double_t *par, Int_t 
   iflag*=1;
 
   // get internal object, histos, values, etc
-  Double_t g       = par[0];
-  f = -2*TMath::Log(1);
+  IactBinnedLivLkl* mylkl = dynamic_cast<IactBinnedLivLkl*>(minuit->GetObjectFit());
+  Double_t g             = par[0];
+  TObjArrayIter* iter    = (TObjArrayIter*) mylkl->GetSampleArray()->MakeIterator();
+  PoissonLkl* sample;
+
+  // -2 log-likelihood
+  f = 0;
+
+  while((sample=dynamic_cast<PoissonLkl*>(iter->Next())))
+    {
+      Double_t   w_i = sample->GetUnitsOfG();
+      Double_t   g_i = g*w_i;
+
+      if(w_i>0)
+        f+=sample->MinimizeLkl(g_i,kTRUE,kFALSE);
+    }
 }		
