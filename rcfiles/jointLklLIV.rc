@@ -1,0 +1,128 @@
+#############################################################################################################
+#
+# Configuration file for the jointLklLIV.C macro
+# 
+#############################################################################################################
+
+#################
+I/O CONFIGURATION
+#################
+
+# Label to indentify this analysis (for naming plots and output files)
+jointLklLIV.Label: GenericIACT_LIV_Linear_Unbinned_GisFree_ZisNuisance
+
+# Configuration for plots
+jointLklLIV.showSamplePlots:   TRUE
+jointLklLIV.showParabolaPlots: TRUE
+jointLklLIV.showLimitPlots:    TRUE
+# Comment out the plot range for automatic selection
+jointLklLIV.plotmin: 1e-25
+jointLklLIV.plotmax: 1e-22
+# Scale factor for results (e.g. to simulate for a Tobs and get results for another Tobs)
+# jointLklLIV.plotScale: 1
+
+# Configuration for data exporter into the Glory Duck file format (i.e. likelihood values for all DM masses specified below)
+jointLklLIV.exportData: TRUE
+# Minimum, maximum and number of scanned values
+jointLklLIV.exportSvMin: 1e-28
+jointLklLIV.exportSvMax: 1e-18
+jointLklLIV.exportSvNPoints: 1000
+# Log-spaced <sv> values?
+jointLklLIV.exportSvLogStep: TRUE
+# Directory for output files
+jointLklLIV.exportDataPath: exported_files
+
+# Path (will be added to all specified files and directories in this rcfile)
+jointLklLIV.path: ./
+
+# Directory with dN/dE files
+jointLklLIV.dNdEDir: DM/dNdE/Cirelli
+
+# Directory for output plots
+jointLklLIV.plotsDir: plots
+
+# Directory with files with histograms of convolution of dN/dE*Aeff with energy estimator pdf
+# Comment out if you don't want to save or read the histograms but create them on the fly
+# (that is slower but safer because you make sure you use the proper histograms and not
+#  some pre-existing version created for a different set of IRFs or samples)
+#jointLklLIV.dNdEpSignalDir: DM/dNdEpSignal
+
+######################
+ANALYSIS CONFIGURATION
+######################
+
+# channel to be analyzed (bb, cc, tt, tautau, mumu, WW, ZZ, hh, gammagamma, pi0pi0, pi0gamma, ee, branon or an arbitrary linear combination of them)
+# The linear combination must be written this form:'br_1*channel_1+...+br_n*channel_n'!
+jointLklLIV.Channel: bb
+
+# Process to be analyzed ("ann" or "dec" for annhilation and decay, respectively, default is annihilation
+# (remember to change consistently the list of masses and J-factor value and uncertainty)
+jointLklLIV.Process: ann
+
+# list of DM masses to be considered (in GeV)
+jointLklLIV.MassList: 100 200 500 1000 2000 5000 10000 20000 50000 100000
+
+# Mean g (number of signal events) for simulations
+# this should be replaced in future release by <sv>
+# but the problem is that <sv> depends on the channel and mass through:
+# g = <sv>*J/(8*Pi*m^2) * integral between fEpmin and fEpmax of fHdNdEpSignal
+jointLklLIV.mcG: 0
+
+# If TRUE (FALSE) g is restricted to positive values only (i.e. Fermi prescription for lkl maximizing out of the physical region)
+jointLklLIV.isGpositive: TRUE
+
+# Delta(-2logLkl) for limits (2.71 = 95% CL, 4.495 = 5sigma)
+jointLklLIV.deltaLogLkl: 2.71
+
+##############################
+JOINT LIKELIHOOD CONFIGURATION
+##############################
+
+# Now include one line per likelihood function term, with the following general syntaxis:
+#    jointLklLIV.lklTerm<XXX>: <termType> <parentTerm> [<options>]
+#
+# where:
+# <XXX>        is an unique index identifying the lkl term (appearing <XXX> indeces must be consecutive)
+# <termType>   is the name of the class descibing the lkl term (JointLkl, Iact1dUnbinnedLkl, Iact1dBinnedLkl, FermiTables2016Lkl)
+# <parentTerm> is the <XXX> index of a JointLkl term (with lower index) to which the lkl term is associated (or "-" for the main JointLkl term)
+# <options>    is a list of different options, with format <opt1_name>=<opt1_value> ... <optN_name>=<optN_value>
+#              All options are optional (there are default values defined in the class), and can be provided in an arbitrary order
+#              The available options differ from class to class, a full description can be found in the documentation of the
+#              class constructor, below we provide some examples.
+#              Invalid options will be simply ignored, no error or warning message will be issued!
+#
+# -  Joint Likelihood:
+#    jointLklLIV.lklTerm<XXX>: JointLkl      <parentTerm> DlogJ=<DlogJ_value>
+# -  Unbinned Full Likelihood:
+#    jointLklLIV.lklTerm<XXX>: Iact1dUnbinnedLkl       <parentTerm> logJ=<logJ_value> DlogJ=<DlogJ_value> inputFileName=<inputFileName> obsTime=<obsTime> tau=<tau> DtauStat=<DtauStat> DtauSyst=<DtauSyst>
+# -  Binned Full Likelihood:
+#    jointLklLIV.lklTerm<XXX>: Iact1dBinnedLkl <parentTerm> logJ=<logJ_value> DlogJ=<DlogJ_value> inputFileName=<inputFileName> nbins=<nbins> minbincontent=<minbincontent> obsTime=<obsTime> tau=<tau> DtauStat=<DtauStat>  DtauSyst=<DtauSyst> tauEDepFluct=<tauEDepFluct> 
+# -  Binned Flux Likelihood (Fermi-LAT format):
+#    jointLklLIV.lklTerm<XXX>: FermiTables2016Lkl <parentTerm> logJ=<logJ_value> DlogJ=<DlogJ_value> inputFileName=<inputFileName>
+# -  Likelihood parabolas (Glory Duck format):
+#    jointLklLIV.lklTerm<XXX>: GloryDuckTables2019Lkl <parentTerm> logJ=<logJ_value> DlogJ=<DlogJ_value> inputFileName=<inputFileName>
+#
+# <logJ             and <DlogJ> are, respectively, the mean value and uncertainty of the log10 of the J factor, in units of GeV^2 cm^-5 (annihilation) or GeV cm^-2 (decay)
+# <inputFileName>   is the name of the input file, which contain the IRFs and data 
+# <obsTime>         [hour] overrides the observation time provided as part of the input file for sensitivity/limit computation. For simulations, in addition, it is used to compute how many events need to be simulated
+# <nbins>           and
+# <minbincontent>   are the number of bins and minimum number of events in each bin, in Iact1dBinnedLkl objects
+# <tau>             overrides the tau value provided at the data file. For simulations, in addition, it is used to compute how many events need to be simulated
+# <DtauStat>        overrides statistical uncertainty in tau provided at the data file. For simulations, in addition, it is used to compute how many events need to be simulated
+# <DtauSyst>        is the relative systematic uncertainty in tau (the Off/On normalization factor), e.g. if DtauSyst=0.015 an uncertaintyof 0.015*tau will be added in quadrature to the statistical uncertainty (from data file or rc file).
+#                   For simulations, in addition, it is used to compute how many events need to be simulated
+# <tauEDepFluct>    can be TRUE or FALSE (default). If true, tau will be allowed to fluctuate independently from energy bin to energy bin
+# <dndepbkgfromoff> can be TRUE or FALSE (default). If true, the background distribution (fHdNdEpBkg, for simulations) will be constructed from Off data distribution
+# <knownBackground> can be TRUE or FALSE (default). If true, b_i (i=1,...,Nbins) are fixed parameters (as opposed to nuisance). This option is for tests mainly
+# <isoffason>       can be TRUE or FALSE (default). If true,  use the Off sample (data or simulatiosn) as if it was the On (for tests). This option is for tests mainly
+#
+# NOTES:
+# - The object for which the minimization is called is lklTerm000, all the other terms should be directly or indirectly associated to lklTerm000 by
+#   the relations described by the <parentTerm> values, in an arbitrarily complex tree structure
+# - When several terms share the same logJ and dLogJ, the corresponding value of logJ must be specified for each of them, whereas the value of
+#   dLogJ only once for their common parent term. This is so because logJ is used to transform excess events into <sv> units whereas a non-zero
+#   DlogJ indicates that the uncertainty in the units of a particular lkl term is an *independent* random variable.
+#
+jointLklLIV.lklTerm000: JointLkl            -         Dz=0.01
+jointLklLIV.lklTerm001: IactUnbinnedLivLkl  0  z=0.1  Dz=0     inputfile=data/root/genericIact_dataIRF_01.root  
+jointLklLIV.lklTerm002: IactBinnedLivLkl    0  z=0.1  Dz=0     inputfile=data/root/genericIact_dataIRF_02.root  nbins=20
