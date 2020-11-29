@@ -575,7 +575,7 @@ Int_t Iact1dUnbinnedLkl::CheckHistograms(Bool_t checkdNdEpBkg)
 //
 Int_t Iact1dUnbinnedLkl::NormalizedNdEHisto(TH1F* histo)
 {
-// basic check
+  // basic check
   if(!histo) return 1;
   
   // do not normalize if it's already normalized
@@ -1720,6 +1720,7 @@ void Iact1dUnbinnedLkl::PrintData(Int_t level)
   if(fHdNdEpSignalOff && fHdNdEpSignal)
     {Margin(level); cout << "            Signal in Off = " << GetdNdEpSignalOffIntegral()/GetdNdEpSignalIntegral()*100  << "% of that in On" << endl;}
 }
+
 //////////////////////////////////////////////////////////////////
 //
 // Produce the E' distribution of On events and return the 
@@ -1987,7 +1988,6 @@ Int_t copyBinByBin(TH1F* ih,TH1F* oh,Double_t scale,Bool_t isDiff)
   return 0;
 }
 
-
 ////////////////////////////////////////////////////////////////////////
 // 
 // Given a histogram hModel representing a model
@@ -2173,7 +2173,6 @@ Int_t SmearHistogram(TH1F* sp,TH1F* smsp,TH2F* mm)
   return 0;
 }
 
-
 ////////////////////////////////////////////////////////////////////////
 // full likelihood function (-2logL) 
 // To be minimized by TMinuit
@@ -2282,4 +2281,4 @@ void fullLkl(Int_t &fpar, Double_t *gin, Double_t &f, Double_t *par, Int_t iflag
 
   delete hdNdEpOn;
   delete hdNdEpOff;
-}		
+}
